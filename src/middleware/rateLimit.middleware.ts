@@ -50,9 +50,11 @@ export const rateLimitMiddleware: MiddlewareFn<AppContext> = async (ctx, next) =
     return;
   }
 
-  const warned = await redis.set(warningKey, '1', { nx: true, ex: 60 });
+  const warned = await redis.set(warningKey, '1', { nx: true, ex: 15 });
   if (warned === 'OK') {
     await sendChunkedWarning(ctx);
+    return;
   }
+  await ctx.reply('Rate limit active. Please wait a few seconds and try again.');
 };
 
