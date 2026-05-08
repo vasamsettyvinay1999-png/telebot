@@ -1,5 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import ws from 'ws';
 import { env } from './env.js';
+
+if (typeof globalThis.WebSocket === 'undefined') {
+  (globalThis as { WebSocket?: unknown }).WebSocket = ws;
+}
 
 /**
  * Supabase client using the service role key.
