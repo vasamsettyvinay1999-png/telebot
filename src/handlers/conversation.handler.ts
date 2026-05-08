@@ -30,7 +30,6 @@ import type { AppContext } from '../types/bot-context.js';
 import { chunkMessage } from '../utils/chunker.js';
 import { logger } from '../utils/logger.js';
 
-const perUserQueue = new Map<number, Promise<void>>();
 const memoryService = new MemoryService();
 
 function persistMessageAsync(userId: string, role: 'user' | 'assistant', content: string): void {
@@ -125,13 +124,9 @@ const routingMiddleware: MiddlewareFn<AppContext> = async (ctx, next) => {
 
     await replyChunked(ctx, 'Unsupported update type received.');
   };
-
-  const previous = perUserQueue.get(userId) ?? Promise.resolve();
-  const current = previous.then(run).catch((err) => {
-    logger.error({ err, userId }, 'Queued message processing failed');
+  await run().catch((err) => {
+    logger.error({ err, userId }, 'Message processing failed');
   });
-  perUserQueue.set(userId, current.finally(() => perUserQueue.delete(userId)));
-  await current;
 };
 
 export function registerConversationHandlers(): void {
