@@ -9,6 +9,22 @@ function getSessionKey(userId: number): string {
   return `session:${userId}`;
 }
 
+function hydrateSession(raw: unknown): SessionState | null {
+  if (raw == null) return null;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as Partial<SessionState>;
+      return { ...defaultSessionState(), ...parsed };
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return { ...defaultSessionState(), ...(raw as Partial<SessionState>) };
+  }
+  return null;
+}
+
 export const sessionMiddleware: MiddlewareFn<AppContext> = async (ctx, next) => {
   const userId = ctx.from?.id;
   if (!userId) {
@@ -18,17 +34,8 @@ export const sessionMiddleware: MiddlewareFn<AppContext> = async (ctx, next) => 
   }
 
   const key = getSessionKey(userId);
-  const rawSession = await redis.get<string>(key);
-  let session: SessionState = defaultSessionState();
-
-  if (typeof rawSession === 'string') {
-    try {
-      const parsed = JSON.parse(rawSession) as SessionState;
-      session = { ...defaultSessionState(), ...parsed };
-    } catch {
-      session = defaultSessionState();
-    }
-  }
+  const rawSession = await redis.get(key);
+  let session = hydrateSession(rawSession) ?? defaultSessionState();
 
   if (Date.now() - session.lastActivity > SESSION_TTL_SECONDS * 1000) {
     session = defaultSessionState();
