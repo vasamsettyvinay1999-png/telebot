@@ -10,6 +10,11 @@ const ONBOARDING_TIMEOUT_MS = 48 * 60 * 60 * 1000;
 
 type OnboardingStep = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
+function isMissingUsersTableError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  return (error as { code?: string }).code === 'PGRST205';
+}
+
 function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   return fn().catch(async () => fn());
 }
@@ -39,10 +44,17 @@ async function updateUser(
   values: Record<string, unknown>,
   retryMessage: string,
 ): Promise<void> {
+  // In bootstrap mode (missing DB tables), keep onboarding conversational instead of failing hard.
+  if (userId.startsWith('temp-')) return;
+
   await withRetry(async () => {
     const { error } = await supabase.from('users').update(values).eq('id', userId);
     if (error) throw error;
   }).catch((error: unknown) => {
+    if (isMissingUsersTableError(error)) {
+      logger.warn({ err: error, userId }, 'users table missing; onboarding update skipped');
+      return;
+    }
     logger.error({ err: error, userId, values }, 'Onboarding DB update failed');
     throw new Error(retryMessage);
   });
@@ -167,16 +179,18 @@ async function handleStepLocation(ctx: AppContext, user: AppUser): Promise<void>
 }
 
 async function finishOnboarding(ctx: AppContext, user: AppUser): Promise<void> {
-  await updateUser(
-    user.id,
-    {
-      status: 'pending_approval',
-      onboarding_completed: true,
-      updated_at: new Date().toISOString(),
-    },
-    'I could not finalize onboarding. Please try again.',
-  );
-  ctx.state.user = { ...user, status: 'pending_approval' };
+  if (!user.id.startsWith('temp-')) {
+    await updateUser(
+      user.id,
+      {
+        status: 'pending_approval',
+        onboarding_completed: true,
+        updated_at: new Date().toISOString(),
+      },
+      'I could not finalize onboarding. Please try again.',
+    );
+    ctx.state.user = { ...user, status: 'pending_approval' };
+  }
   ctx.session.currentFlow = null;
   ctx.session.flowStep = 7;
   await ctx.reply(
