@@ -44,45 +44,57 @@ function extractChatId(update: Update): number | null {
 }
 
 export function registerWebhookRoutes(fastify: FastifyInstance): void {
-  fastify.post<{ Body: Update }>(
-    '/webhook/telegram',
+  const processAcceptedUpdate = async (update: Update): Promise<void> => {
+    if (await isReplayUpdate(update)) return;
+    setImmediate(() => {
+      void processUpdate(update).catch((err) => {
+        logger.error({ err }, 'Failed to process Telegram update');
+        const chatId = extractChatId(update);
+        if (typeof chatId === 'number') {
+          void bot.telegram
+            .sendMessage(
+              chatId,
+              'Temporary processing issue. Please resend your last message in a few seconds.',
+            )
+            .catch((sendErr) => {
+              logger.error({ err: sendErr, chatId }, 'Failed to send webhook fallback message');
+            });
+        }
+      });
+    });
+  };
+
+  fastify.post<{ Body: Update }>('/webhook/telegram', async (req, reply) => {
+    try {
+      const secretHeader = req.headers['x-telegram-bot-api-secret-token'];
+      const providedSecretFromHeader = typeof secretHeader === 'string' ? secretHeader : '';
+      if (providedSecretFromHeader !== env.TELEGRAM_WEBHOOK_SECRET) {
+        await reply.code(403).send();
+        return;
+      }
+
+      // Always acknowledge quickly to avoid Telegram retries.
+      await reply.code(200).send('OK');
+      await processAcceptedUpdate(req.body);
+    } catch (err) {
+      logger.error({ err }, 'Webhook handler error (swallowed)');
+      // Telegram expects 200 even on internal errors to avoid retry storms.
+      if (!reply.sent) await reply.code(200).send('OK');
+    }
+  });
+
+  fastify.post<{ Params: { secretToken: string }; Body: Update }>(
+    '/webhook/:secretToken',
     async (req, reply) => {
       try {
-        const secretHeader = req.headers['x-telegram-bot-api-secret-token'];
-        const providedSecret = typeof secretHeader === 'string' ? secretHeader : '';
-        // #region agent log
-        fetch('http://127.0.0.1:7267/ingest/0744ad6d-27c0-4515-a012-a7a51da5b03c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc9f91'},body:JSON.stringify({sessionId:'cc9f91',runId:'post-fix',hypothesisId:'H2',location:'src/routes/webhook.route.ts:handler:entry',message:'Telegram webhook request received',data:{providedSecretLength:providedSecret.length,expectedSecretLength:env.TELEGRAM_WEBHOOK_SECRET.length,secretMatched:providedSecret===env.TELEGRAM_WEBHOOK_SECRET,updateId:extractUpdateId(req.body)},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-        if (providedSecret !== env.TELEGRAM_WEBHOOK_SECRET) {
+        if (req.params.secretToken !== env.TELEGRAM_WEBHOOK_SECRET) {
           await reply.code(403).send();
           return;
         }
-
-        // Always acknowledge quickly to avoid Telegram retries.
         await reply.code(200).send('OK');
-
-        const update = req.body;
-        if (await isReplayUpdate(update)) return;
-
-        setImmediate(() => {
-          void processUpdate(update).catch((err) => {
-            logger.error({ err }, 'Failed to process Telegram update');
-            const chatId = extractChatId(update);
-            if (typeof chatId === 'number') {
-              void bot.telegram
-                .sendMessage(
-                  chatId,
-                  'Temporary processing issue. Please resend your last message in a few seconds.',
-                )
-                .catch((sendErr) => {
-                  logger.error({ err: sendErr, chatId }, 'Failed to send webhook fallback message');
-                });
-            }
-          });
-        });
+        await processAcceptedUpdate(req.body);
       } catch (err) {
         logger.error({ err }, 'Webhook handler error (swallowed)');
-        // Telegram expects 200 even on internal errors to avoid retry storms.
         if (!reply.sent) await reply.code(200).send('OK');
       }
     },
