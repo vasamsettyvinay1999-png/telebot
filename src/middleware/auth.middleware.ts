@@ -4,6 +4,12 @@ import type { AppContext } from '../types/bot-context.js';
 import type { AppUser } from '../types/session.js';
 import { logger } from '../utils/logger.js';
 
+function isMissingUsersTableError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const maybeCode = (err as { code?: string }).code;
+  return maybeCode === 'PGRST205';
+}
+
 async function getOrCreateUser(telegramId: number, ctxFrom: { username?: string; first_name?: string; last_name?: string }): Promise<AppUser> {
   const startedAt = Date.now();
   const { data: existing, error: fetchError } = await supabase
@@ -39,7 +45,21 @@ export const authMiddleware: MiddlewareFn<AppContext> = async (ctx, next) => {
     return;
   }
 
-  const user = await getOrCreateUser(ctx.from.id, ctx.from);
+  let user: AppUser;
+  try {
+    user = await getOrCreateUser(ctx.from.id, ctx.from);
+  } catch (err) {
+    if (!isMissingUsersTableError(err)) throw err;
+    logger.warn({ err, telegramId: ctx.from.id }, 'users table missing; using in-memory auth fallback');
+    user = {
+      id: `temp-${ctx.from.id}`,
+      telegram_id: ctx.from.id,
+      telegram_username: ctx.from.username ?? null,
+      telegram_first_name: ctx.from.first_name ?? null,
+      telegram_last_name: ctx.from.last_name ?? null,
+      status: 'onboarding',
+    };
+  }
   ctx.state.user = user;
 
   if (user.status === 'banned') {

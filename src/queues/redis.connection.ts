@@ -8,9 +8,11 @@ export interface BullRedisConfig {
 }
 
 export function getBullRedisConfig(): BullRedisConfig {
+  const bullmqUrl = env.BULLMQ_REDIS_URL?.trim();
+  const bullmqToken = env.BULLMQ_REDIS_TOKEN?.trim();
   return {
-    url: env.BULLMQ_REDIS_URL ?? env.UPSTASH_REDIS_URL,
-    token: env.BULLMQ_REDIS_TOKEN ?? env.UPSTASH_REDIS_TOKEN,
+    url: bullmqUrl && bullmqUrl.length > 0 ? bullmqUrl : env.UPSTASH_REDIS_URL,
+    token: bullmqToken && bullmqToken.length > 0 ? bullmqToken : env.UPSTASH_REDIS_TOKEN,
   };
 }
 

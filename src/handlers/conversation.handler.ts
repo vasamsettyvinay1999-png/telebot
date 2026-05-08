@@ -133,6 +133,12 @@ const routingMiddleware: MiddlewareFn<AppContext> = async (ctx, next) => {
 export function registerConversationHandlers(): void {
   registerAdminHandlers();
   registerPaymentHandlers();
+  bot.command('start', async (ctx) => {
+    await replyChunked(
+      ctx,
+      "Bot is online. If setup tables are still pending, core onboarding may be limited until migrations finish.",
+    );
+  });
   bot.use(authMiddleware);
   bot.use(rateLimitMiddleware);
   bot.use(sessionMiddleware);

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { z } from 'zod';
 import { EnvValidationError } from '../utils/errors.js';
 
