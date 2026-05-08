@@ -156,8 +156,13 @@ export function registerConversationHandlers(): void {
     // Ignore channel posts for now.
   });
 
-  bot.catch((err, ctx) => {
+  bot.catch(async (err, ctx) => {
     logger.error({ err, update: ctx.update }, 'Telegraf update handling failed');
+    try {
+      await ctx.reply('Temporary issue handling your message. Please try again in a few seconds.');
+    } catch (replyErr) {
+      logger.error({ err: replyErr }, 'Failed to send fallback error reply');
+    }
   });
 }
 
