@@ -6,7 +6,10 @@ const envSchema = z.object({
   // App
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-  APP_URL: z.string().url().optional(),
+  APP_URL: z.preprocess(
+    () => process.env.APP_URL ?? process.env.RENDER_EXTERNAL_URL,
+    z.string().url().optional(),
+  ),
   LOG_LEVEL: z.string().default('info'),
 
   // Telegram
@@ -24,9 +27,17 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
 
-  // Redis
-  UPSTASH_REDIS_URL: z.string().min(1),
-  UPSTASH_REDIS_TOKEN: z.string().min(1),
+  // Redis — @upstash/redis uses the HTTPS REST endpoint (Upstash dashboard: "REST API URL").
+  UPSTASH_REDIS_URL: z.preprocess(
+    () =>
+      (process.env.UPSTASH_REDIS_URL ?? process.env.UPSTASH_REDIS_REST_URL ?? '').trim(),
+    z.string().min(1),
+  ),
+  UPSTASH_REDIS_TOKEN: z.preprocess(
+    () =>
+      (process.env.UPSTASH_REDIS_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN ?? '').trim(),
+    z.string().min(1),
+  ),
   BULLMQ_REDIS_URL: z.string().optional(),
   BULLMQ_REDIS_TOKEN: z.string().optional().default(''),
 
@@ -63,6 +74,23 @@ const envSchema = z.object({
   ADMIN_TELEGRAM_IDS: z.string().min(1),
   ADMIN_ALERT_CHANNEL_ID: z.string().optional(),
 }).superRefine((value, ctx) => {
+  try {
+    const u = new URL(value.UPSTASH_REDIS_URL);
+    if (u.protocol !== 'https:') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['UPSTASH_REDIS_URL'],
+        message:
+          'must be Upstash REST URL starting with https (not redis:// — use REST URL + token). Set UPSTASH_REDIS_REST_URL if that is how your provider labels it.',
+      });
+    }
+  } catch {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['UPSTASH_REDIS_URL'],
+      message: 'must be a valid URL (Upstash REST API URL)',
+    });
+  }
   if (value.NODE_ENV === 'production' && value.TELEGRAM_USE_POLLING) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
