@@ -25,6 +25,14 @@ Run dev server:
 npm run dev
 ```
 
+For local polling (optional), set:
+
+```bash
+TELEGRAM_USE_POLLING=true
+```
+
+Default local mode is webhook-compatible (polling off).
+
 Run file worker (separate process):
 
 ```bash
@@ -39,7 +47,7 @@ npm run build
 
 ### Webhook endpoint shape
 
-- Telegram: `POST /webhook/<TELEGRAM_WEBHOOK_SECRET>`
+- Telegram: `POST /webhook/telegram` with header `x-telegram-bot-api-secret-token`
 - Stripe: `POST /stripe/webhook`
 
 ### Queue Redis note
@@ -106,4 +114,49 @@ set `BULLMQ_REDIS_URL` and `BULLMQ_REDIS_TOKEN` to a Redis endpoint for queue wo
 
 - To enable real Google Calendar booking, configure `GOOGLE_REFRESH_TOKEN`
 - Without it, the system uses safe fallback slots and still sends confirmation email
+
+## Render deployment (production)
+
+### Web service settings
+
+- Runtime: `Node`
+- Build command: `npm install && npm run build`
+- Start command: `npm run start:web`
+- Health check path: `/health`
+
+### Worker service settings
+
+- Runtime: `Node`
+- Build command: `npm install && npm run build`
+- Start command: `npm run start:worker`
+
+### Required production env vars
+
+- `NODE_ENV=production`
+- `PORT` (provided by Render)
+- `APP_URL` (your Render web URL, e.g. `https://your-app.onrender.com`)
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_WEBHOOK_SECRET` (min 16 chars)
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `UPSTASH_REDIS_URL`
+- `UPSTASH_REDIS_TOKEN`
+- `ANTHROPIC_API_KEY`
+- `ADMIN_TELEGRAM_IDS` (comma-separated numeric Telegram IDs)
+
+### Optional env vars
+
+- Stripe: `STRIPE_ENABLED=true` then set `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+- Google Calendar: `GOOGLE_CALENDAR_ENABLED=true` then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALENDAR_ID` (+ optional `GOOGLE_REFRESH_TOKEN`)
+- Resend: `RESEND_ENABLED=true` then set `RESEND_API_KEY`
+- BullMQ Redis override (only if needed): `BULLMQ_REDIS_URL`, `BULLMQ_REDIS_TOKEN`
+
+### Post-deploy commands
+
+```bash
+npm run db:migrate
+npm run telegram:set-webhook
+npm run telegram:get-webhook-info
+APP_URL=https://your-app.onrender.com npm run verify:runtime
+```
 

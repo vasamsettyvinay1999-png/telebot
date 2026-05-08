@@ -1,4 +1,5 @@
 import type { MiddlewareFn } from 'telegraf';
+import { ADMIN_TELEGRAM_IDS } from '../config/constants.js';
 import { redis } from '../config/redis.js';
 import type { AppContext } from '../types/bot-context.js';
 import { chunkMessage } from '../utils/chunker.js';
@@ -33,6 +34,10 @@ async function sendChunkedWarning(ctx: AppContext): Promise<void> {
 export const rateLimitMiddleware: MiddlewareFn<AppContext> = async (ctx, next) => {
   const userId = ctx.from?.id;
   if (!userId) {
+    await next();
+    return;
+  }
+  if (ADMIN_TELEGRAM_IDS.includes(BigInt(userId))) {
     await next();
     return;
   }

@@ -9,7 +9,9 @@
     "worker:ai:dev": "tsx watch workers/ai.worker.ts",
     "worker:notify:dev": "tsx watch workers/notification.worker.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
+    "start:web": "node dist/src/server.js",
+    "start:worker": "node dist/workers/file.worker.js",
     "worker:start": "node dist/workers/file.worker.js",
     "worker:ai:start": "node dist/workers/ai.worker.js",
     "worker:notify:start": "node dist/workers/notification.worker.js",
@@ -17,7 +19,10 @@
     "lint": "eslint src workers",
     "db:migrate": "supabase db push",
     "security:check": "node scripts/security-audit-check.mjs",
-    "verify:runtime": "node scripts/verify-runtime.mjs"
+    "verify:runtime": "node scripts/verify-runtime.mjs",
+    "telegram:set-webhook": "node scripts/telegram-set-webhook.mjs",
+    "telegram:delete-webhook": "node scripts/telegram-delete-webhook.mjs",
+    "telegram:get-webhook-info": "node scripts/telegram-get-webhook-info.mjs"
   },
   "keywords": [],
   "author": "",

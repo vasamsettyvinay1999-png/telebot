@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: orion-path-web
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:web
+    healthCheckPath: /health
+    autoDeploy: true
+
+  - type: worker
+    name: orion-path-worker
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:worker
+    autoDeploy: true

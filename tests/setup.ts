@@ -2,9 +2,11 @@ import { vi } from 'vitest';
 
 process.env.NODE_ENV = process.env.NODE_ENV ?? 'test';
 process.env.PORT = process.env.PORT ?? '3000';
+process.env.APP_URL = process.env.APP_URL ?? 'http://localhost:3000';
 process.env.LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
 process.env.TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? '12345:ABCDEFTESTTOKEN';
 process.env.TELEGRAM_WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET ?? 'secret-token-test-value';
+process.env.TELEGRAM_USE_POLLING = process.env.TELEGRAM_USE_POLLING ?? 'false';
 process.env.SUPABASE_URL = process.env.SUPABASE_URL ?? 'https://example.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'service-role-key-test-value';
@@ -15,10 +17,13 @@ process.env.BULLMQ_REDIS_TOKEN = process.env.BULLMQ_REDIS_TOKEN ?? '';
 process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'anthropic-test-key';
 process.env.STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY ?? 'sk_test_123';
 process.env.STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? 'whsec_123';
+process.env.STRIPE_ENABLED = process.env.STRIPE_ENABLED ?? 'true';
 process.env.GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? 'google-client-id';
 process.env.GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? 'google-client-secret';
 process.env.GOOGLE_CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID ?? 'primary';
+process.env.GOOGLE_CALENDAR_ENABLED = process.env.GOOGLE_CALENDAR_ENABLED ?? 'true';
 process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? 're_test_123';
+process.env.RESEND_ENABLED = process.env.RESEND_ENABLED ?? 'true';
 process.env.ADMIN_TELEGRAM_IDS = process.env.ADMIN_TELEGRAM_IDS ?? '123456789';
 
 globalThis.fetch = vi.fn(async () => {
