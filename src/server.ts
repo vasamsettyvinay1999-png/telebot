@@ -14,6 +14,9 @@ import { startSchedulers } from './services/scheduler/scheduler.service.js';
 import { registerWebhookRoutes } from './routes/webhook.route.js';
 import { logger, loggerOptions } from './utils/logger.js';
 import { gauge, increment, timing } from './utils/metrics.js';
+import { ADMIN_TELEGRAM_IDS } from './config/constants.js';
+
+const DEPLOY_MARKER = 'DEPLOY_MARKER_ONBOARDING_SKIP_V3';
 
 const fastify = Fastify({
   logger: loggerOptions,
@@ -71,11 +74,44 @@ await fastify.register(rateLimit, {
   hook: 'onRequest',
 });
 
-fastify.get('/health', () => ({
-  status: 'ok',
-  timestamp: new Date().toISOString(),
-  uptime: process.uptime(),
-}));
+fastify.get('/health', async (_req, reply) => {
+  let supabaseOk = true;
+  let redisOk = true;
+  try {
+    const { error } = await supabase.from('users').select('id').limit(1);
+    if (error) supabaseOk = false;
+  } catch {
+    supabaseOk = false;
+  }
+  try {
+    await redis.ping();
+  } catch {
+    redisOk = false;
+  }
+  const statusCode = supabaseOk && redisOk ? 200 : 503;
+  await reply.code(statusCode).send({
+    status: statusCode === 200 ? 'ok' : 'degraded',
+    service: 'orion-path',
+    envLoaded: true,
+    checks: {
+      supabase: supabaseOk ? 'ok' : 'error',
+      redis: redisOk ? 'ok' : 'error',
+    },
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+fastify.get('/ready', async (_req, reply) => {
+  try {
+    await redis.ping();
+    const { error } = await supabase.from('users').select('id').limit(1);
+    if (error) throw error;
+    await reply.code(200).send({ status: 'ready' });
+  } catch {
+    await reply.code(503).send({ status: 'not_ready' });
+  }
+});
 
 registerWebhookRoutes(fastify);
 registerAdminRoutes(fastify);
@@ -88,7 +124,13 @@ gauge('process.boot.timestamp', Date.now());
 async function verifyDependencies(): Promise<void> {
   try {
     await redis.ping();
+    // #region agent log
+    fetch('http://127.0.0.1:7267/ingest/0744ad6d-27c0-4515-a012-a7a51da5b03c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc9f91'},body:JSON.stringify({sessionId:'cc9f91',runId:'initial',hypothesisId:'H5',location:'src/server.ts:verifyDependencies:redis',message:'Redis ping succeeded',data:{nodeEnv:env.NODE_ENV},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
   } catch (err) {
+    // #region agent log
+    fetch('http://127.0.0.1:7267/ingest/0744ad6d-27c0-4515-a012-a7a51da5b03c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc9f91'},body:JSON.stringify({sessionId:'cc9f91',runId:'initial',hypothesisId:'H5',location:'src/server.ts:verifyDependencies:redis',message:'Redis ping failed',data:{nodeEnv:env.NODE_ENV,error:String(err)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     logger.fatal({ err }, 'Redis ping failed');
     throw err;
   }
@@ -96,15 +138,46 @@ async function verifyDependencies(): Promise<void> {
   // Best-effort Supabase check. This will succeed only after migrations.
   try {
     await supabase.from('users').select('id').limit(1);
+    // #region agent log
+    fetch('http://127.0.0.1:7267/ingest/0744ad6d-27c0-4515-a012-a7a51da5b03c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc9f91'},body:JSON.stringify({sessionId:'cc9f91',runId:'initial',hypothesisId:'H5',location:'src/server.ts:verifyDependencies:supabase',message:'Supabase check executed',data:{table:'users'},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
   } catch (err) {
+    // #region agent log
+    fetch('http://127.0.0.1:7267/ingest/0744ad6d-27c0-4515-a012-a7a51da5b03c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc9f91'},body:JSON.stringify({sessionId:'cc9f91',runId:'initial',hypothesisId:'H5',location:'src/server.ts:verifyDependencies:supabase',message:'Supabase check failed',data:{table:'users',error:String(err)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     logger.warn({ err }, 'Supabase check failed (likely before migrations)');
   }
 }
 
 async function startTelegramUpdateIngestion(): Promise<void> {
-  logger.info('Initializing Telegram update ingestion');
-  if (process.env.TELEGRAM_ENABLE_POLLING !== 'true') {
-    logger.info('Skipping Telegram long polling (TELEGRAM_ENABLE_POLLING is not true)');
+  const mode = env.NODE_ENV === 'production' ? 'webhook' : env.TELEGRAM_USE_POLLING ? 'polling' : 'webhook';
+  const webhookPath = '/webhook/telegram';
+  logger.info(
+    { mode, appUrl: env.APP_URL, webhookPath, nodeEnv: env.NODE_ENV },
+    'Initializing Telegram update ingestion',
+  );
+  logger.info({ adminCount: ADMIN_TELEGRAM_IDS.length }, 'Admin configuration loaded');
+  // #region agent log
+  fetch('http://127.0.0.1:7267/ingest/0744ad6d-27c0-4515-a012-a7a51da5b03c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc9f91'},body:JSON.stringify({sessionId:'cc9f91',runId:'post-fix',hypothesisId:'H1',location:'src/server.ts:startTelegramUpdateIngestion:entry',message:'Evaluating Telegram ingestion mode',data:{nodeEnv:env.NODE_ENV,usePollingEnv:env.TELEGRAM_USE_POLLING,port:env.PORT,mode},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  try {
+    const me = await bot.telegram.getMe();
+    logger.info({ botUsername: me.username }, 'Telegram bot identity resolved');
+  } catch (err) {
+    logger.warn({ err }, 'Could not resolve Telegram bot identity');
+  }
+  if (mode !== 'polling') {
+    if (env.NODE_ENV === 'development') {
+      logger.warn(
+        {
+          mode,
+          appUrl: env.APP_URL ?? null,
+          hint: 'Set TELEGRAM_USE_POLLING=true for local bot replies unless webhook is publicly reachable',
+        },
+        'Local dev running in webhook mode',
+      );
+    }
+    logger.info({ mode, webhookPath, appUrl: env.APP_URL }, 'Telegram webhook mode active; polling disabled');
     return;
   }
   // Fire-and-forget startup so API boot is never blocked by Telegram network latency.
@@ -130,14 +203,23 @@ void startTelegramUpdateIngestion().catch((err) => {
   logger.error({ err }, 'Failed to start Telegram update ingestion');
 });
 
+logger.info({ marker: DEPLOY_MARKER }, 'Startup marker');
+
 await fastify.listen({ port: env.PORT, host: '0.0.0.0' });
 logger.info({ port: env.PORT }, 'Server listening');
+// #region agent log
+fetch('http://127.0.0.1:7267/ingest/0744ad6d-27c0-4515-a012-a7a51da5b03c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc9f91'},body:JSON.stringify({sessionId:'cc9f91',runId:'post-fix',hypothesisId:'H1',location:'src/server.ts:listen',message:'Server started',data:{port:env.PORT,nodeEnv:env.NODE_ENV,pollingEnabled:env.TELEGRAM_USE_POLLING},timestamp:Date.now()})}).catch(()=>{});
+// #endregion
 
 const shutdown = async (signal: string): Promise<void> => {
   logger.info({ signal }, 'Shutdown signal received');
   try {
     await fastify.close();
-    bot.stop(signal);
+    try {
+      bot.stop(signal);
+    } catch (err) {
+      logger.warn({ err }, 'Bot stop ignored');
+    }
     if (queueMonitor) clearInterval(queueMonitor);
     schedulerIntervals.forEach((timer) => clearInterval(timer));
     logger.info('Fastify closed');
