@@ -1,0 +1,65 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        run: npm ci
+      - name: Readiness gate for required deploy secrets
+        run: |
+          if [ -z "${{ secrets.FLY_API_TOKEN }}" ]; then
+            echo "Missing FLY_API_TOKEN"
+            exit 1
+          fi
+          if [ -z "${{ secrets.FLY_APP_URL }}" ]; then
+            echo "Missing FLY_APP_URL"
+            exit 1
+          fi
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test -- --run
+      - name: Build
+        run: npm run build
+      - name: Deploy to Fly
+        if: ${{ secrets.FLY_API_TOKEN != '' }}
+        run: npx flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Post-deploy health check
+        if: ${{ success() }}
+        run: |
+          sleep 15
+          for i in 1 2 3 4 5; do
+            if curl -fsSL "${{ secrets.FLY_APP_URL }}/health"; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Health check attempt $i failed, retrying..."
+            sleep 10
+          done
+          echo "Health check failed after retries"
+          exit 1
+      - name: Post-deploy runtime verification
+        if: ${{ success() }}
+        run: npm run verify:runtime
+        env:
+          APP_URL: ${{ secrets.FLY_APP_URL }}
+      - name: Notify deployment failure webhook
+        if: ${{ failure() && secrets.CI_ALERT_WEBHOOK_URL != '' }}
+        run: |
+          curl -X POST "${{ secrets.CI_ALERT_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"text\":\"Deploy workflow failed for ${{ github.repository }} @ ${{ github.sha }}\"}"
+
