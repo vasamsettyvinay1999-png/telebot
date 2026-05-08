@@ -1,7 +1,19 @@
 import { Resend } from 'resend';
 import { env } from '../../config/env.js';
+import { logger } from '../../utils/logger.js';
 
-const resend = new Resend(env.RESEND_API_KEY);
+let resendClient: Resend | null | undefined;
+
+function getResend(): Resend | null {
+  if (resendClient !== undefined) return resendClient;
+  const key = env.RESEND_API_KEY?.trim();
+  if (!env.RESEND_ENABLED || !key) {
+    resendClient = null;
+    return null;
+  }
+  resendClient = new Resend(key);
+  return resendClient;
+}
 
 export class EmailNotifier {
   public async sendBookingConfirmation(input: {
@@ -17,6 +29,11 @@ export class EmailNotifier {
     const meetLine = input.meetLink
       ? `Join link: ${input.meetLink}`
       : 'Meeting link will be shared separately.';
+    const resend = getResend();
+    if (!resend) {
+      logger.warn('Resend is disabled or RESEND_API_KEY is missing; skip booking confirmation email');
+      return;
+    }
     await resend.emails.send({
       from: 'Orion Path <noreply@orionpath.ai>',
       to: [input.email],
