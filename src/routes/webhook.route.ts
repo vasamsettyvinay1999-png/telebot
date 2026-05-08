@@ -19,15 +19,41 @@ export async function isReplayUpdate(update: Update): Promise<boolean> {
 }
 
 async function processUpdate(update: Update): Promise<void> {
-  await bot.handleUpdate(update);
+  await Promise.race([
+    bot.handleUpdate(update),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Telegraf handleUpdate timeout')), 8000),
+    ),
+  ]);
+}
+
+function extractChatId(update: Update): number | null {
+  if ('message' in update && update.message && 'chat' in update.message) return update.message.chat.id;
+  if ('edited_message' in update && update.edited_message && 'chat' in update.edited_message)
+    return update.edited_message.chat.id;
+  if (
+    'callback_query' in update &&
+    update.callback_query &&
+    'message' in update.callback_query &&
+    update.callback_query.message &&
+    'chat' in update.callback_query.message
+  ) {
+    return update.callback_query.message.chat.id;
+  }
+  return null;
 }
 
 export function registerWebhookRoutes(fastify: FastifyInstance): void {
-  fastify.post<{ Params: { secretToken: string }; Body: Update }>(
-    '/webhook/:secretToken',
+  fastify.post<{ Body: Update }>(
+    '/webhook/telegram',
     async (req, reply) => {
       try {
-        if (req.params.secretToken !== env.TELEGRAM_WEBHOOK_SECRET) {
+        const secretHeader = req.headers['x-telegram-bot-api-secret-token'];
+        const providedSecret = typeof secretHeader === 'string' ? secretHeader : '';
+        // #region agent log
+        fetch('http://127.0.0.1:7267/ingest/0744ad6d-27c0-4515-a012-a7a51da5b03c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc9f91'},body:JSON.stringify({sessionId:'cc9f91',runId:'post-fix',hypothesisId:'H2',location:'src/routes/webhook.route.ts:handler:entry',message:'Telegram webhook request received',data:{providedSecretLength:providedSecret.length,expectedSecretLength:env.TELEGRAM_WEBHOOK_SECRET.length,secretMatched:providedSecret===env.TELEGRAM_WEBHOOK_SECRET,updateId:extractUpdateId(req.body)},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+        if (providedSecret !== env.TELEGRAM_WEBHOOK_SECRET) {
           await reply.code(403).send();
           return;
         }
@@ -41,6 +67,17 @@ export function registerWebhookRoutes(fastify: FastifyInstance): void {
         setImmediate(() => {
           void processUpdate(update).catch((err) => {
             logger.error({ err }, 'Failed to process Telegram update');
+            const chatId = extractChatId(update);
+            if (typeof chatId === 'number') {
+              void bot.telegram
+                .sendMessage(
+                  chatId,
+                  'Temporary processing issue. Please resend your last message in a few seconds.',
+                )
+                .catch((sendErr) => {
+                  logger.error({ err: sendErr, chatId }, 'Failed to send webhook fallback message');
+                });
+            }
           });
         });
       } catch (err) {
