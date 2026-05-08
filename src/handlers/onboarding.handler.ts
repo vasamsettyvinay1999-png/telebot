@@ -222,8 +222,14 @@ export async function maybeStartOnboarding(ctx: AppContext): Promise<boolean> {
   if (ctx.session.currentFlow === 'onboarding') return false;
 
   resetOnboardingState(ctx);
-  await sendWelcome(ctx);
-  return true;
+  const text = extractText(ctx);
+  // Only force the welcome prompt on explicit /start (or non-text events).
+  // For normal text, let handleOnboardingFlow consume it as step 1 input.
+  if (!text || text.startsWith('/start')) {
+    await sendWelcome(ctx);
+    return true;
+  }
+  return false;
 }
 
 export async function handleOnboardingFlow(ctx: AppContext): Promise<boolean> {
