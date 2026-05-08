@@ -33,16 +33,24 @@ import { logger } from '../utils/logger.js';
 const perUserQueue = new Map<number, Promise<void>>();
 const memoryService = new MemoryService();
 
+function persistMessageAsync(userId: string, role: 'user' | 'assistant', content: string): void {
+  void memoryService
+    .addMessage(userId, {
+      role,
+      content,
+      timestamp: Date.now(),
+    })
+    .catch((err) => {
+      logger.warn({ err, userId, role }, 'Failed to persist memory message (non-blocking)');
+    });
+}
+
 async function replyChunked(ctx: AppContext, text: string): Promise<void> {
   const chunks = chunkMessage(text);
   for (const chunk of chunks) {
     await ctx.reply(chunk);
     if (ctx.state.user) {
-      await memoryService.addMessage(ctx.state.user.id, {
-        role: 'assistant',
-        content: chunk,
-        timestamp: Date.now(),
-      });
+      persistMessageAsync(ctx.state.user.id, 'assistant', chunk);
     }
   }
 }
@@ -56,11 +64,7 @@ const routingMiddleware: MiddlewareFn<AppContext> = async (ctx, next) => {
 
   const run = async (): Promise<void> => {
     if (ctx.state.user && ctx.message && 'text' in ctx.message) {
-      await memoryService.addMessage(ctx.state.user.id, {
-        role: 'user',
-        content: ctx.message.text,
-        timestamp: Date.now(),
-      });
+      persistMessageAsync(ctx.state.user.id, 'user', ctx.message.text);
     }
 
     if (await maybeStartOnboarding(ctx)) return;

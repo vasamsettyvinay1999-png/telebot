@@ -4,6 +4,9 @@ import type { AppContext } from '../types/bot-context.js';
 import type { AppUser } from '../types/session.js';
 import { logger } from '../utils/logger.js';
 
+const AUTH_CACHE_TTL_MS = 2 * 60 * 1000;
+const userCache = new Map<number, { user: AppUser; expiresAt: number }>();
+
 function isMissingUsersTableError(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const maybeCode = (err as { code?: string }).code;
@@ -44,26 +47,39 @@ export const authMiddleware: MiddlewareFn<AppContext> = async (ctx, next) => {
     await next();
     return;
   }
+  const telegramId = ctx.from.id;
+
+  const cached = userCache.get(telegramId);
+  if (cached && cached.expiresAt > Date.now()) {
+    ctx.state.user = cached.user;
+    if (cached.user.status === 'banned') {
+      logger.warn({ telegramId }, 'Dropped message from banned user (cache hit)');
+      return;
+    }
+    await next();
+    return;
+  }
 
   let user: AppUser;
   try {
-    user = await getOrCreateUser(ctx.from.id, ctx.from);
+    user = await getOrCreateUser(telegramId, ctx.from);
   } catch (err) {
     if (!isMissingUsersTableError(err)) throw err;
-    logger.warn({ err, telegramId: ctx.from.id }, 'users table missing; using in-memory auth fallback');
+    logger.warn({ err, telegramId }, 'users table missing; using in-memory auth fallback');
     user = {
-      id: `temp-${ctx.from.id}`,
-      telegram_id: ctx.from.id,
+      id: `temp-${telegramId}`,
+      telegram_id: telegramId,
       telegram_username: ctx.from.username ?? null,
       telegram_first_name: ctx.from.first_name ?? null,
       telegram_last_name: ctx.from.last_name ?? null,
       status: 'onboarding',
     };
   }
+  userCache.set(telegramId, { user, expiresAt: Date.now() + AUTH_CACHE_TTL_MS });
   ctx.state.user = user;
 
   if (user.status === 'banned') {
-    logger.warn({ telegramId: ctx.from.id }, 'Dropped message from banned user');
+    logger.warn({ telegramId }, 'Dropped message from banned user');
     return;
   }
 
