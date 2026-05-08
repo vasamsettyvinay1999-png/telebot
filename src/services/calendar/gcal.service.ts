@@ -9,13 +9,14 @@ export interface TimeSlot {
 }
 
 export class GoogleCalendarService {
+  private readonly calendarEnabled = env.GOOGLE_CALENDAR_ENABLED;
   private readonly oauth2 = new google.auth.OAuth2(
-    env.GOOGLE_CLIENT_ID,
-    env.GOOGLE_CLIENT_SECRET,
+    env.GOOGLE_CLIENT_ID ?? '',
+    env.GOOGLE_CLIENT_SECRET ?? '',
   );
 
   private hasCalendarCredentials(): boolean {
-    return Boolean(env.GOOGLE_REFRESH_TOKEN);
+    return this.calendarEnabled && Boolean(env.GOOGLE_REFRESH_TOKEN);
   }
 
   private getRefreshToken(): string | null {
@@ -27,6 +28,8 @@ export class GoogleCalendarService {
       return this.getFallbackSlots();
     }
     try {
+      const calendarId = env.GOOGLE_CALENDAR_ID;
+      if (!calendarId) return this.getFallbackSlots();
       this.oauth2.setCredentials({ refresh_token: this.getRefreshToken() });
       const calendar = google.calendar({ version: 'v3', auth: this.oauth2 });
       const now = new Date();
@@ -36,10 +39,10 @@ export class GoogleCalendarService {
           timeMin: now.toISOString(),
           timeMax: inSevenDays.toISOString(),
           timeZone: env.GOOGLE_CALENDAR_TIMEZONE,
-          items: [{ id: env.GOOGLE_CALENDAR_ID }],
+          items: [{ id: calendarId }],
         },
       });
-      const busy = busyResponse.data.calendars?.[env.GOOGLE_CALENDAR_ID]?.busy ?? [];
+      const busy = busyResponse.data.calendars?.[calendarId]?.busy ?? [];
 
       const slots: TimeSlot[] = [];
       for (let dayOffset = 1; dayOffset <= 7; dayOffset += 1) {
@@ -49,7 +52,7 @@ export class GoogleCalendarService {
             const start = new Date(day);
             start.setHours(hour, minute, 0, 0);
             const end = new Date(start.getTime() + 30 * 60 * 1000);
-            const overlaps = busy.some((b) => {
+            const overlaps = busy.some((b: { start?: string | null; end?: string | null }) => {
               const bStart = b.start ? Date.parse(b.start) : Number.NaN;
               const bEnd = b.end ? Date.parse(b.end) : Number.NaN;
               if (Number.isNaN(bStart) || Number.isNaN(bEnd)) return false;
@@ -81,10 +84,12 @@ export class GoogleCalendarService {
       return { eventId: null, meetLink: null };
     }
     try {
+      const calendarId = env.GOOGLE_CALENDAR_ID;
+      if (!calendarId) return { eventId: null, meetLink: null };
       this.oauth2.setCredentials({ refresh_token: this.getRefreshToken() });
       const calendar = google.calendar({ version: 'v3', auth: this.oauth2 });
       const response = await calendar.events.insert({
-        calendarId: env.GOOGLE_CALENDAR_ID,
+        calendarId,
         conferenceDataVersion: 1,
         sendUpdates: 'all',
         requestBody: {

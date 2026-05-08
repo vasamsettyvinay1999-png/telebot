@@ -5,9 +5,17 @@ import { env } from '../../config/env.js';
 import { supabase } from '../../config/supabase.js';
 import { logger } from '../../utils/logger.js';
 
-const stripe = new Stripe(env.STRIPE_SECRET_KEY, { apiVersion: '2026-04-22.dahlia' });
+function getStripeSecretKey(): string | null {
+  if (!env.STRIPE_ENABLED) return null;
+  return env.STRIPE_SECRET_KEY ?? null;
+}
 
 export class StripeService {
+  private readonly stripe: Stripe | null = (() => {
+    const key = getStripeSecretKey();
+    return key ? new Stripe(key, { apiVersion: '2026-04-22.dahlia' }) : null;
+  })();
+
   private async sendAdminAlert(message: string): Promise<void> {
     if (!env.ADMIN_ALERT_CHANNEL_ID) return;
     await bot.telegram.sendMessage(Number(env.ADMIN_ALERT_CHANNEL_ID), message);
@@ -42,11 +50,14 @@ export class StripeService {
   }
 
   public async createCheckoutSession(userId: string, pkg: 'single' | 'bundle'): Promise<string> {
+    if (!this.stripe) {
+      throw new Error('Stripe integration is disabled');
+    }
     const config =
       pkg === 'single'
         ? { credits: 1, amount: 200, label: '1 Credit' }
         : { credits: 5, amount: 800, label: '5 Credits' };
-    const session = await stripe.checkout.sessions.create({
+    const session = await this.stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
         {

@@ -1,13 +1,22 @@
 import type { FastifyInstance } from 'fastify';
-import Stripe from 'stripe';
 import { env } from '../config/env.js';
 import { StripeService } from '../services/payments/stripe.service.js';
 import { logger } from '../utils/logger.js';
-
-const stripe = new Stripe(env.STRIPE_SECRET_KEY, { apiVersion: '2026-04-22.dahlia' });
-const stripeService = new StripeService();
+import Stripe from 'stripe';
 
 export function registerStripeRoutes(fastify: FastifyInstance): void {
+  if (!env.STRIPE_ENABLED) {
+    logger.info('Stripe routes disabled (STRIPE_ENABLED=false)');
+    return;
+  }
+  if (!env.STRIPE_SECRET_KEY || !env.STRIPE_WEBHOOK_SECRET) {
+    logger.warn('Stripe routes disabled: missing STRIPE_SECRET_KEY or STRIPE_WEBHOOK_SECRET');
+    return;
+  }
+
+  const stripe = new Stripe(env.STRIPE_SECRET_KEY, { apiVersion: '2026-04-22.dahlia' });
+  const webhookSecret = env.STRIPE_WEBHOOK_SECRET;
+  const stripeService = new StripeService();
   fastify.post('/stripe/webhook', async (req, reply) => {
     try {
       const signature = req.headers['stripe-signature'];
@@ -23,7 +32,11 @@ export function registerStripeRoutes(fastify: FastifyInstance): void {
         return;
       }
 
-      const event = stripe.webhooks.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET);
+      const event = stripe.webhooks.constructEvent(
+        rawBody,
+        signature,
+        webhookSecret,
+      );
 
       if (event.type === 'payment_intent.succeeded') {
         const intent = event.data.object;
